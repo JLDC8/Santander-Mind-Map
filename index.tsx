@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { createPortal } from 'react-dom';
@@ -72,6 +70,7 @@ interface AddImageModalState {
 const BASE_NODE_HEIGHT = 60;
 const SUBTASK_HEIGHT = 28;
 const METADATA_ROW_HEIGHT = 40; // Fila unificada para owners y tags
+const LINK_ROW_EXTRA_HEIGHT = 35; // Altura extra si hay una fila de enlaces
 
 const PRIORITY_STYLES: { [key in Priority]: { bg: string; text: string; label: string } } = {
     0: { bg: 'bg-gray-200', text: 'text-gray-500', label: 'Ninguna' },
@@ -186,7 +185,18 @@ const MapViewIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-
 const ListViewIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>);
 const ChevronRightIcon: React.FC<{ className?: string }> = ({ className }) => (<svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${className || ''}`.trim()} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>);
 const ImageIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>);
+const ReparentIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="m19 9-4 4-4-4" /><path d="M15 13V3" /></svg>);
 
+const LinkTypeIcon: React.FC<{type: LinkType}> = ({type}) => {
+    switch (type) {
+        case 'outlook': return <OutlookIcon />;
+        case 'excel': return <ExcelIcon />;
+        case 'powerpoint': return <PowerPointIcon />;
+        case 'teams': return <TeamsIcon />;
+        case 'image': return <ImageIcon />;
+        default: return <WebIcon />;
+    }
+};
 
 // --- EDITOR DE TEXTO ENRIQUECIDO ---
 const NotesEditor: React.FC<{
@@ -577,7 +587,7 @@ const SideBrowser: React.FC<{ link: Link | null; onClose: () => void }> = ({ lin
                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                     {link.desktopUrl && (
                         <a href={link.desktopUrl} target="_blank" rel="noopener noreferrer" title="Abrir en App de Escritorio" className="p-1.5 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-200 transition-colors">
-                            <DesktopAppIcon />
+                            <LinkTypeIcon type={link.type} />
                         </a>
                     )}
                     <a href={link.url} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña" className="p-1.5 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-200 transition-colors">
@@ -799,7 +809,7 @@ const FocusView: React.FC<{
                                 <div className="space-y-1 max-h-24 overflow-y-auto pr-2">
                                     {desktopOnlyLinks.map(link => (
                                         <a key={link.id} href={link.desktopUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-1.5 rounded-md hover:bg-gray-100 text-sm text-gray-700">
-                                            <DesktopAppIcon />
+                                            <LinkTypeIcon type={link.type} />
                                             <span className="truncate">{link.title}</span>
                                         </a>
                                     ))}
@@ -851,7 +861,10 @@ const NodeComponent: React.FC<{
   node: Node;
   ownersById: Map<number, Owner>;
   meetingsById: Map<number, Meeting>;
+  reparentingNodeId: number | null;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>, nodeId: number) => void;
+  onNodeClick: (nodeId: number) => void;
+  onSetReparentingMode: (nodeId: number) => void;
   onAddLink: (nodeId: number) => void;
   onAddImage: (nodeId: number) => void;
   onRemoveLink: (nodeId: number, linkId: number) => void;
@@ -876,7 +889,7 @@ const NodeComponent: React.FC<{
   onHideImagePreview: () => void;
   onOpenImageViewer: (link: Link) => void;
 }> = (props) => {
-  const { node, ownersById, meetingsById, onMouseDown, onAddLink, onAddImage, onRemoveLink, onAddChild, onOpenLink, onUpdateText, onToggleEdit, onOpenNotes, onOpenFocusView, onAddSubtask, onToggleSubtask, onUpdateSubtaskText, onSetSubtaskEditing, onAddTag, onRemoveTag, onAssignOwner, onAssignMeeting, onRemoveMeeting, onCyclePriority, onSetNodeFilter, onShowImagePreview, onHideImagePreview, onOpenImageViewer } = props;
+  const { node, ownersById, meetingsById, reparentingNodeId, onMouseDown, onNodeClick, onSetReparentingMode, onAddLink, onAddImage, onRemoveLink, onAddChild, onOpenLink, onUpdateText, onToggleEdit, onOpenNotes, onOpenFocusView, onAddSubtask, onToggleSubtask, onUpdateSubtaskText, onSetSubtaskEditing, onAddTag, onRemoveTag, onAssignOwner, onAssignMeeting, onRemoveMeeting, onCyclePriority, onSetNodeFilter, onShowImagePreview, onHideImagePreview, onOpenImageViewer } = props;
   const [editText, setEditText] = useState(node.text);
   const [tagInput, setTagInput] = useState('');
 
@@ -918,17 +931,6 @@ const NodeComponent: React.FC<{
     return (tempDiv.textContent || "").trim().length > 0 || tempDiv.querySelector('img') !== null;
   }, [node.notes]);
 
-  const LinkTypeIcon: React.FC<{type: LinkType}> = ({type}) => {
-      switch (type) {
-          case 'outlook': return <OutlookIcon />;
-          case 'excel': return <ExcelIcon />;
-          case 'powerpoint': return <PowerPointIcon />;
-          case 'teams': return <TeamsIcon />;
-          case 'image': return <ImageIcon />;
-          default: return <WebIcon />;
-      }
-  };
-
   if (node.isEditing) {
     return (
       <div className="absolute bg-white border-2 border-red-500 rounded-lg shadow-lg p-3 flex flex-col z-20" style={{ left: node.x, top: node.y, width: node.width, height: node.height }}>
@@ -941,12 +943,19 @@ const NodeComponent: React.FC<{
     );
   }
 
+  const isBeingReparented = reparentingNodeId === node.id;
+  const isReparentingTarget = reparentingNodeId !== null && !isBeingReparented;
+
   return (
     <div
       id={`node-${node.id}`}
-      className={`absolute bg-white border-2 border-gray-200 rounded-lg shadow-md p-3 cursor-grab flex flex-col transition-all duration-300 hover:shadow-xl hover:border-red-500 z-10`}
+      className={`absolute bg-white border-2 rounded-lg shadow-md p-3 flex flex-col transition-all duration-300 hover:shadow-xl z-10 
+        ${isBeingReparented ? 'border-dashed border-blue-500 ring-2 ring-blue-200 cursor-pointer' : 'border-gray-200 hover:border-red-500'}
+        ${isReparentingTarget ? 'cursor-crosshair' : 'cursor-grab'}
+      `}
       style={{ left: node.x, top: node.y, width: node.width, minHeight: node.height }}
       onMouseDown={(e) => onMouseDown(e, node.id)} onDoubleClick={() => onToggleEdit(node.id)}
+      onClick={() => onNodeClick(node.id)}
       onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}
       role="treeitem" aria-label={`Tarea: ${node.text}`}
     >
@@ -1013,9 +1022,9 @@ const NodeComponent: React.FC<{
                 ))}
                 <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag} placeholder="+ Tag" className="text-xs bg-gray-100 rounded px-1.5 py-0.5 w-16 focus:ring-1 focus:ring-red-500 focus:outline-none"/>
             </div>
-            {/* Enlaces y Acciones */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1 flex-wrap">
+            {/* Enlaces */}
+            {node.links.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap border-t border-gray-100 pt-1.5 mt-1.5">
                   {node.links.map(link => (
                     <div key={link.id} className="group relative">
                         <button onClick={(e) => { e.stopPropagation(); link.type === 'image' ? onOpenImageViewer(link) : onOpenLink(link); }}
@@ -1029,7 +1038,11 @@ const NodeComponent: React.FC<{
                     </div>
                   ))}
                 </div>
+            )}
+            {/* Acciones */}
+            <div className="flex items-center justify-end">
                 <div className="flex items-center gap-0.5">
+                   <button onClick={(e) => { e.stopPropagation(); onSetReparentingMode(node.id); }} className={`p-1 rounded-full hover:bg-gray-100 transition-colors ${isBeingReparented ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:text-red-600'}`} aria-label="Recolocar nodo" title="Recolocar Nodo"><ReparentIcon /></button>
                    <button onClick={(e) => { e.stopPropagation(); onSetNodeFilter(node.id); }} className="p-1 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-100 transition-colors" aria-label="Filtrar por este nodo" title="Filtrar por este nodo"><FilterIcon /></button>
                    <button onClick={(e) => { e.stopPropagation(); onAddSubtask(node.id); }} className="p-1 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-100 transition-colors" aria-label="Añadir subtarea" title="Añadir Subtarea">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
@@ -1075,8 +1088,8 @@ const ListView: React.FC<{
         const [isExpanded, setIsExpanded] = useState(true);
 
         return (
-            <>
-                <li
+            <li>
+                <div
                     onClick={() => setSelectedNodeId(node.id)}
                     className={`flex items-center p-2 rounded-md cursor-pointer hover:bg-gray-100 ${selectedNodeId === node.id ? 'bg-red-50' : ''}`}
                     style={{ paddingLeft: `${level * 1.5 + 0.5}rem`}}
@@ -1092,26 +1105,36 @@ const ListView: React.FC<{
                             <img key={owner!.id} src={owner!.imageUrl} alt={owner!.name} title={owner!.name} className="w-5 h-5 rounded-full border border-white -ml-1" />
                         ))}
                     </div>
-                </li>
-                {isExpanded && children.length > 0 && (
-                    <ul>
-                        {children.map(child => <TaskListItem key={child.id} node={child} level={level + 1} />)}
-                    </ul>
+                </div>
+                {isExpanded && (
+                    <>
+                        {node.subtasks.length > 0 && (
+                            <ul className="pl-2">
+                                {node.subtasks.map(subtask => (
+                                    <li key={subtask.id} 
+                                        className="flex items-center text-sm py-1 text-gray-600 rounded"
+                                        style={{ paddingLeft: `${level * 1.5 + 1.5}rem`}}>
+                                        <input type="checkbox" checked={subtask.completed} readOnly className="h-3.5 w-3.5 rounded border-gray-300 text-red-600 focus:ring-red-500 mr-2 flex-shrink-0" />
+                                        <span className={`truncate ${subtask.completed ? 'line-through text-gray-400' : ''}`}>{subtask.text}</span>
+                                        <div className="ml-auto flex items-center pl-2 flex-shrink-0">
+                                            {subtask.ownerIds.map(oid => ownersById.get(oid)).filter(Boolean).map(owner => (
+                                                <img key={owner!.id} src={owner!.imageUrl} alt={owner!.name} title={owner!.name} className="w-4 h-4 rounded-full border border-white -ml-1" />
+                                            ))}
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {children.length > 0 && (
+                            <ul>
+                                {children.map(child => <TaskListItem key={child.id} node={child} level={level + 1} />)}
+                            </ul>
+                        )}
+                    </>
                 )}
-            </>
+            </li>
         )
     }
-
-    const LinkTypeIcon: React.FC<{type: LinkType}> = ({type}) => {
-      switch (type) {
-          case 'outlook': return <OutlookIcon />;
-          case 'excel': return <ExcelIcon />;
-          case 'powerpoint': return <PowerPointIcon />;
-          case 'teams': return <TeamsIcon />;
-          case 'image': return <ImageIcon />;
-          default: return <WebIcon />;
-      }
-    };
 
     return (
         <div className="flex h-full w-full bg-white">
@@ -1137,7 +1160,7 @@ const ListView: React.FC<{
                                         <div className="space-y-2">
                                             {selectedNode.links.filter(l => l.desktopUrl && !l.url).map(link => (
                                                 <a key={link.id} href={link.desktopUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 border text-sm text-gray-700">
-                                                    <DesktopAppIcon />
+                                                    <LinkTypeIcon type={link.type} />
                                                     <span className="truncate font-medium">{link.title}</span>
                                                     <OpenInNewIcon className="ml-auto text-gray-400" />
                                                 </a>
@@ -1223,21 +1246,23 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [previewImage, setPreviewImage] = useState<{ src: string, top: number, left: number } | null>(null);
   const [viewingImageLink, setViewingImageLink] = useState<Link | null>(null);
+  const [reparentingNodeId, setReparentingNodeId] = useState<number | null>(null);
   
   const draggingInfo = useRef<{ id: number | null; offsetX: number; offsetY: number; isDragging: boolean }>({ id: null, offsetX: 0, offsetY: 0, isDragging: false });
   const panningInfo = useRef({ isPanning: false, startX: 0, startY: 0, startViewX: 0, startViewY: 0 });
   const mapRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
-  // FIX: Explicitly type Map for type safety.
   const ownersById = useMemo(() => new Map<number, Owner>(owners.map(owner => [owner.id, owner])), [owners]);
-  // FIX: Explicitly type Map for type safety.
   const meetingsById = useMemo(() => new Map<number, Meeting>(meetings.map(meeting => [meeting.id, meeting])), [meetings]);
   
   const calculateNodeHeight = useCallback((node: Node) => {
       let height = BASE_NODE_HEIGHT;
       height += node.subtasks.length * SUBTASK_HEIGHT;
-      height += METADATA_ROW_HEIGHT; 
+      height += METADATA_ROW_HEIGHT; // for owners/tags and actions row
+      if (node.links.length > 0) {
+        height += LINK_ROW_EXTRA_HEIGHT;
+      }
       return height;
   }, []);
   
@@ -1310,7 +1335,6 @@ const App: React.FC = () => {
 
 
   const displayedNodesById = useMemo(() => {
-    // FIX: Explicitly type Map for type safety.
     const map = new Map<number, Node>();
     displayedNodes.forEach(node => map.set(node.id, node));
     return map;
@@ -1430,8 +1454,50 @@ const App: React.FC = () => {
           window.open(link.desktopUrl, '_self');
       }
   };
+
+    const handleSetReparentingMode = (nodeId: number) => {
+        setReparentingNodeId(prev => (prev === nodeId ? null : nodeId));
+    };
+
+    const handleNodeClick = (clickedNodeId: number) => {
+        if (!reparentingNodeId) return;
+
+        if (reparentingNodeId === clickedNodeId) {
+            setReparentingNodeId(null); // Cancel by clicking the same node
+            return;
+        }
+
+        // Check for cycles
+        const nodesById = new Map(nodes.map(n => [n.id, n]));
+        let p: Node | undefined = nodesById.get(clickedNodeId);
+        let isCycle = false;
+        while (p) {
+            if (p.id === reparentingNodeId) {
+                isCycle = true;
+                break;
+            }
+            p = p.parentId ? nodesById.get(p.parentId) : undefined;
+        }
+
+        if (!isCycle) {
+            setNodes(prev => prev.map(n =>
+                n.id === reparentingNodeId
+                ? { ...n, parentId: clickedNodeId }
+                : n
+            ));
+        } else {
+            alert("Operación no permitida: no se puede mover un nodo a uno de sus propios descendientes.");
+        }
+
+        setReparentingNodeId(null);
+    };
+
   
   const handleMapMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (reparentingNodeId) {
+      setReparentingNodeId(null);
+      return;
+    }
     if (e.target === mapRef.current) {
         e.preventDefault();
         panningInfo.current = { isPanning: true, startX: e.clientX, startY: e.clientY, startViewX: viewTransform.x, startViewY: viewTransform.y };
@@ -1440,7 +1506,7 @@ const App: React.FC = () => {
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>, nodeId: number) => {
-    if ((e.target as HTMLElement).closest('button, textarea, input, select, a')) return;
+    if (reparentingNodeId || (e.target as HTMLElement).closest('button, textarea, input, select, a')) return;
     const node = nodes.find(n => n.id === nodeId);
     if (!node || !mapRef.current) return;
     
@@ -1480,55 +1546,22 @@ const App: React.FC = () => {
     const draggedNodeId = draggingInfo.current.id;
     if (draggedNodeId !== null && draggingInfo.current.isDragging) {
         const el = document.getElementById(`node-${draggedNodeId}`);
-        if(el) { el.style.cursor = 'grab'; el.style.zIndex = '10'; el.style.transition = 'left 0.3s ease, top 0.3s ease, right 0.3s ease, bottom 0.3s ease'; }
-        
-        // FIX: Explicitly type Map to ensure `get` returns a typed object, fixing multiple property access errors.
-        const nodesById = new Map<number, Node>(nodes.map(n => [n.id, n]));
-        const draggedNode = nodesById.get(draggedNodeId);
-
-        if (draggedNode) {
-            const dragCenterX = draggedNode.x + draggedNode.width / 2;
-            const dragCenterY = draggedNode.y + draggedNode.height / 2;
-            let newParent: Node | null = null;
-            
-            for (const targetNode of nodes) {
-                if (targetNode.id === draggedNode.id) continue;
-                if (dragCenterX > targetNode.x && dragCenterX < targetNode.x + targetNode.width &&
-                    dragCenterY > targetNode.y && dragCenterY < targetNode.y + targetNode.height) {
-                    newParent = targetNode;
-                    break;
-                }
-            }
-
-            if (newParent && newParent.id !== draggedNode.parentId) {
-                // FIX: Explicitly type `p` to avoid type inference issues in the loop.
-                let p: Node | null = newParent;
-                let isCycle = false;
-                while (p) {
-                    if (p.id === draggedNode.id) {
-                        isCycle = true;
-                        break;
-                    }
-                    // FIX: Safer parent lookup that avoids non-null assertion `!` and handles undefined returns from `get`.
-                    const parentNode = p.parentId ? nodesById.get(p.parentId) : undefined;
-                    p = parentNode || null;
-                }
-
-                if (!isCycle) {
-                    setNodes(prev => prev.map(n => n.id === draggedNodeId ? {...n, parentId: newParent!.id} : n));
-                }
-            }
+        if(el) { 
+            el.style.cursor = 'grab'; 
+            el.style.zIndex = '10'; 
+            el.style.transition = 'left 0.3s ease, top 0.3s ease, right 0.3s ease, bottom 0.3s ease'; 
         }
     }
-
+    
     if (panningInfo.current.isPanning) {
         panningInfo.current.isPanning = false;
         if(mapRef.current) { mapRef.current.style.cursor = 'grab'; }
     }
     draggingInfo.current = { id: null, offsetX: 0, offsetY: 0, isDragging: false };
-}, [nodes]);
+}, []);
   
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if(reparentingNodeId) return;
     e.preventDefault();
     const zoomFactor = 1.1;
     const newZoom = e.deltaY < 0 ? viewTransform.zoom * zoomFactor : viewTransform.zoom / zoomFactor;
@@ -1546,6 +1579,16 @@ const App: React.FC = () => {
 
     setViewTransform({ x: newX, y: newY, zoom: clampedZoom });
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            setReparentingNodeId(null);
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+}, []);
 
   useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove);
@@ -1634,7 +1677,32 @@ const App: React.FC = () => {
             const text = e.target?.result as string;
             const data = JSON.parse(text);
             if (data.nodes && Array.isArray(data.nodes) && data.owners && Array.isArray(data.owners)) {
-                setNodes(data.nodes);
+                // FIX: Sanitize imported nodes to ensure they conform to the Node interface,
+                // providing default values for any missing properties from older file formats.
+                const sanitizedNodes: Node[] = (data.nodes as any[]).map((node, index): Node => {
+                    // FIX: Ensure that each item from the imported array is a valid object before accessing its properties.
+                    // This prevents potential runtime errors if the array contains null/undefined values and resolves the TypeScript errors.
+                    const safeNode = (node && typeof node === 'object') ? node : {};
+                    return {
+                        id: safeNode.id || Date.now() + index,
+                        text: safeNode.text || "Untitled Node",
+                        x: safeNode.x || 0,
+                        y: safeNode.y || 0,
+                        width: safeNode.width || 220,
+                        height: safeNode.height || BASE_NODE_HEIGHT,
+                        parentId: safeNode.parentId !== undefined ? safeNode.parentId : null,
+                        links: safeNode.links || [],
+                        notes: safeNode.notes || '',
+                        subtasks: safeNode.subtasks || [],
+                        tags: safeNode.tags || [],
+                        ownerIds: safeNode.ownerIds || [],
+                        priority: safeNode.priority || 0,
+                        meetingIds: safeNode.meetingIds || [],
+                        isEditing: safeNode.isEditing || false,
+                    };
+                });
+
+                setNodes(sanitizedNodes);
                 setOwners(data.owners);
                 if (data.meetings && Array.isArray(data.meetings)) {
                     setMeetings(data.meetings);
@@ -1739,7 +1807,7 @@ const App: React.FC = () => {
 
         <main className="flex-grow bg-gray-100 relative overflow-hidden">
             {viewMode === 'map' ? (
-                 <div className="h-full w-full" ref={mapRef} onMouseDown={handleMapMouseDown} onWheel={handleWheel} style={{ cursor: 'grab' }}>
+                 <div className="h-full w-full" ref={mapRef} onMouseDown={handleMapMouseDown} onWheel={handleWheel} style={{ cursor: reparentingNodeId ? 'crosshair' : 'grab' }}>
                     <div className="absolute" style={{ transform: `translate(${viewTransform.x}px, ${viewTransform.y}px) scale(${viewTransform.zoom})`, transformOrigin: '0 0' }}>
                         <svg className="absolute top-0 left-0 w-full h-full" style={{ width: '100vw', height: '100vh', pointerEvents: 'none' }}>
                             <defs>
@@ -1767,7 +1835,11 @@ const App: React.FC = () => {
                         {displayedNodes.map(node => (
                             <NodeComponent 
                                 key={node.id} node={node} ownersById={ownersById} meetingsById={meetingsById}
-                                onMouseDown={handleMouseDown} onAddLink={handleAddLink} onAddImage={handleAddImage}
+                                reparentingNodeId={reparentingNodeId}
+                                onMouseDown={handleMouseDown}
+                                onNodeClick={handleNodeClick}
+                                onSetReparentingMode={handleSetReparentingMode}
+                                onAddLink={handleAddLink} onAddImage={handleAddImage}
                                 onRemoveLink={handleRemoveLink} onAddChild={() => handleAddNode(node.id)}
                                 onOpenLink={handleOpenLink} onUpdateText={handleUpdateNodeText}
                                 onToggleEdit={handleToggleEdit} onOpenNotes={handleOpenNotes} onOpenFocusView={setFocusedNodeId}
