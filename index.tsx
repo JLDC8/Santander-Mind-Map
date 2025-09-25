@@ -1,4 +1,10 @@
 
+{/*
+---
+title: Santander Mind Map v8.1
+description: A mind mapping application for managing tasks and links with a Santander-inspired theme.
+---
+*/}
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { createPortal } from 'react-dom';
@@ -188,6 +194,8 @@ const ListViewIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h
 const ChevronRightIcon: React.FC<{ className?: string }> = ({ className }) => (<svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${className || ''}`.trim()} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>);
 const ImageIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>);
 const ReparentIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="m19 9-4 4-4-4" /><path d="M15 13V3" /></svg>);
+const ArrowLeftIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" /></svg>);
+
 
 const LinkTypeIcon: React.FC<{type: LinkType}> = ({type}) => {
     switch (type) {
@@ -1208,11 +1216,74 @@ const ListView: React.FC<{
 
 const MeetingViewModal: React.FC<{
   meeting: Meeting;
-  nodes: Node[];
+  agendaNodes: Node[];
   ownersById: Map<number, Owner>;
   onClose: () => void;
-  onSaveNotes: (meetingId: number, notes: string) => void;
-}> = ({ meeting, nodes, ownersById, onClose, onSaveNotes }) => {
+  onSaveMeetingNotes: (meetingId: number, notes: string) => void;
+  onSaveNodeNotes: (nodeId: number, notes: string) => void;
+}> = ({ meeting, agendaNodes, ownersById, onClose, onSaveMeetingNotes, onSaveNodeNotes }) => {
+  const [viewingNotesOfNodeId, setViewingNotesOfNodeId] = useState<number | null>(null);
+
+  const { uniqueOwners, uniqueLinks } = useMemo(() => {
+    const ownerIds = new Set<number>();
+    const linksMap = new Map<string, Link>();
+
+    agendaNodes.forEach(node => {
+        node.ownerIds.forEach(id => ownerIds.add(id));
+        node.subtasks.forEach(st => st.ownerIds.forEach(id => ownerIds.add(id)));
+        node.links.forEach(link => {
+            const key = link.url || link.desktopUrl || link.imageData;
+            if (key && !linksMap.has(key)) {
+                linksMap.set(key, link);
+            }
+        });
+    });
+
+    return {
+        uniqueOwners: Array.from(ownerIds).map(id => ownersById.get(id)).filter(Boolean) as Owner[],
+        uniqueLinks: Array.from(linksMap.values()),
+    };
+  }, [agendaNodes, ownersById]);
+  
+  const nodesById = useMemo(() => new Map(agendaNodes.map(n => [n.id, n])), [agendaNodes]);
+  const agendaRootNodes = agendaNodes.filter(n => n.parentId === null || !nodesById.has(n.parentId!));
+
+  const nodeForNotes = viewingNotesOfNodeId ? nodesById.get(viewingNotesOfNodeId) : null;
+
+  const AgendaListItem: React.FC<{node: Node, level: number}> = ({ node, level }) => {
+    const children = agendaNodes.filter(child => child.parentId === node.id);
+    return (
+        <li style={{ paddingLeft: `${level * 1}rem` }}>
+            <div 
+                className={`font-semibold text-gray-800 p-1 rounded-md cursor-pointer hover:bg-blue-100 ${viewingNotesOfNodeId === node.id ? 'bg-blue-200' : ''}`}
+                onClick={() => setViewingNotesOfNodeId(node.id)}
+            >
+                {node.text}
+            </div>
+            {node.subtasks.length > 0 && (
+                <ul className="pl-4 mt-1 space-y-1">
+                    {node.subtasks.map(subtask => (
+                        <li key={subtask.id} className="flex items-center text-sm text-gray-600">
+                            <input type="checkbox" checked={subtask.completed} readOnly className="h-3.5 w-3.5 rounded border-gray-300 text-red-600 focus:ring-red-500 mr-2 flex-shrink-0" />
+                            <span className={`${subtask.completed ? 'line-through text-gray-400' : ''}`}>{subtask.text}</span>
+                            <div className="ml-auto flex items-center pl-2 flex-shrink-0">
+                                {subtask.ownerIds.map(oid => ownersById.get(oid)).filter(Boolean).map(owner => (
+                                    <img key={owner!.id} src={owner!.imageUrl} alt={owner!.name} title={owner!.name} className="w-4 h-4 rounded-full border border-white -ml-1" />
+                                ))}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {children.length > 0 && (
+                <ul className="mt-1 space-y-1">
+                    {children.map(child => <AgendaListItem key={child.id} node={child} level={level + 1} />)}
+                </ul>
+            )}
+        </li>
+    );
+  };
+
   return (
     <div className="fixed inset-0 bg-gray-800 bg-opacity-75 z-50 flex flex-col p-4 md:p-8" role="dialog" aria-modal="true">
       <div className="bg-white rounded-xl shadow-2xl w-full h-full flex flex-col">
@@ -1230,43 +1301,69 @@ const MeetingViewModal: React.FC<{
              </button>
           </div>
         </header>
-        <div className="flex-grow flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
-            {/* Left Column: Agenda */}
-            <div className="w-full md:w-1/2 flex flex-col min-h-0">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Agenda / Tareas</h3>
-                <div className="flex-grow border rounded-lg p-2 overflow-y-auto bg-gray-50">
-                    <ul className="space-y-3">
-                        {nodes.map(node => (
-                            <li key={node.id}>
-                                <div className="font-semibold text-gray-800">{node.text}</div>
-                                {node.subtasks.length > 0 && (
-                                    <ul className="pl-4 mt-1 space-y-1">
-                                        {node.subtasks.map(subtask => (
-                                            <li key={subtask.id} className="flex items-center text-sm text-gray-600">
-                                                <input type="checkbox" checked={subtask.completed} readOnly className="h-3.5 w-3.5 rounded border-gray-300 text-red-600 focus:ring-red-500 mr-2 flex-shrink-0" />
-                                                <span className={`${subtask.completed ? 'line-through text-gray-400' : ''}`}>{subtask.text}</span>
-                                                <div className="ml-auto flex items-center pl-2 flex-shrink-0">
-                                                    {subtask.ownerIds.map(oid => ownersById.get(oid)).filter(Boolean).map(owner => (
-                                                        <img key={owner!.id} src={owner!.imageUrl} alt={owner!.name} title={owner!.name} className="w-4 h-4 rounded-full border border-white -ml-1" />
-                                                    ))}
-                                                </div>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
+        <div className="flex-grow flex flex-col md:flex-row gap-6 p-4 overflow-hidden">
+            {/* Left Column: Agenda & Resources */}
+            <div className="w-full md:w-1/2 flex flex-col min-h-0 space-y-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Agenda</h3>
+                    <div className="border rounded-lg p-2 overflow-y-auto bg-gray-50 max-h-80">
+                        <ul className="space-y-2">
+                            {agendaRootNodes.map(node => <AgendaListItem key={node.id} node={node} level={0} />)}
+                        </ul>
+                    </div>
+                </div>
+                <div className="flex flex-col space-y-4 overflow-y-auto">
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-800 mb-2">Participantes</h3>
+                        <div className="flex flex-wrap gap-2">
+                            {uniqueOwners.map(owner => (
+                                <div key={owner.id} className="flex items-center gap-2 bg-gray-100 p-1 pr-2 rounded-full">
+                                    <img src={owner.imageUrl} alt={owner.name} className="w-6 h-6 rounded-full" />
+                                    <span className="text-sm font-medium text-gray-700">{owner.name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-800 mb-2">Recursos</h3>
+                        <div className="space-y-2">
+                             {uniqueLinks.map(link => (
+                                <a key={link.id} href={link.url || link.desktopUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-1.5 rounded-md hover:bg-gray-100 text-sm text-gray-700 border">
+                                    <LinkTypeIcon type={link.type} />
+                                    <span className="truncate">{link.title}</span>
+                                    {link.type === 'image' && link.imageData && <img src={link.imageData} className="w-8 h-8 object-cover rounded-sm ml-auto"/>}
+                                </a>
+                             ))}
+                        </div>
+                    </div>
                 </div>
             </div>
             {/* Right Column: Notes */}
             <div className="w-full md:w-1/2 flex flex-col min-h-0">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Notas de la reunión</h3>
-                <NotesEditor 
-                    content={meeting.notes} 
-                    onChange={(content) => onSaveNotes(meeting.id, content)} 
-                    placeholder="Escribe aquí las notas de la reunión..." 
-                />
+                <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-semibold text-gray-800">
+                        {nodeForNotes ? `Notas para: ${nodeForNotes.text}` : 'Notas de la reunión'}
+                    </h3>
+                    {nodeForNotes && (
+                        <button onClick={() => setViewingNotesOfNodeId(null)} className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1">
+                            <ArrowLeftIcon /> Volver a las notas de la reunión
+                        </button>
+                    )}
+                </div>
+                {nodeForNotes ? (
+                    <NotesEditor 
+                        key={nodeForNotes.id}
+                        content={nodeForNotes.notes} 
+                        onChange={(content) => onSaveNodeNotes(nodeForNotes.id, content)} 
+                        placeholder="Escribe aquí las notas para esta tarea..." 
+                    />
+                ) : (
+                    <NotesEditor 
+                        content={meeting.notes} 
+                        onChange={(content) => onSaveMeetingNotes(meeting.id, content)} 
+                        placeholder="Escribe aquí las notas de la reunión..." 
+                    />
+                )}
             </div>
         </div>
       </div>
@@ -1326,6 +1423,10 @@ const App: React.FC = () => {
 
   const ownersById = useMemo(() => new Map<number, Owner>(owners.map(owner => [owner.id, owner])), [owners]);
   const meetingsById = useMemo(() => new Map<number, Meeting>(meetings.map(meeting => [meeting.id, meeting])), [meetings]);
+  
+  const sortedMeetings = useMemo(() => {
+    return [...meetings].sort((a, b) => a.time.localeCompare(b.time));
+  }, [meetings]);
   
   const calculateNodeHeight = useCallback((node: Node) => {
       let height = BASE_NODE_HEIGHT;
@@ -1722,17 +1823,17 @@ const App: React.FC = () => {
       setSearchQuery('');
       setFilterByNodeId(null);
       setFilterByMeetingId(null);
-      setPriorityFilter(prev => prev === priority ? 0 : priority);
+      setPriorityFilter(prev => prev === priority ? null : priority);
   };
   const handleSetNodeFilter = (nodeId: number | null) => {
     setSearchQuery('');
-    setPriorityFilter(0);
+    setPriorityFilter(null);
     setFilterByMeetingId(null);
     setFilterByNodeId(nodeId);
   }
   const handleFilterByMeeting = (meetingId: number | null) => {
       setSearchQuery('');
-      setPriorityFilter(0);
+      setPriorityFilter(null);
       setFilterByNodeId(null);
       setFilterByMeetingId(prev => prev === meetingId ? null : meetingId);
   };
@@ -1763,11 +1864,10 @@ const App: React.FC = () => {
     reader.onload = (e) => {
         try {
             const text = e.target?.result as string;
-            const data = JSON.parse(text);
+            // FIX: Explicitly cast the result of JSON.parse to 'any' to avoid 'unknown' type issues.
+            const data: any = JSON.parse(text);
             if (data.nodes && Array.isArray(data.nodes) && data.owners && Array.isArray(data.owners)) {
                 const sanitizedNodes: Node[] = (data.nodes as any[]).map((node, index): Node => {
-                    // FIX: Explicitly type safeNode as Partial<Node> and check for null.
-                    // This prevents a TypeScript error when node is not an object, and a runtime error if node is null.
                     const safeNode: Partial<Node> = (node && typeof node === 'object' && node !== null) ? node : {};
                     return {
                         id: safeNode.id || Date.now() + index,
@@ -1791,7 +1891,7 @@ const App: React.FC = () => {
                 setNodes(sanitizedNodes);
                 setOwners(data.owners);
                 if (data.meetings && Array.isArray(data.meetings)) {
-                     const sanitizedMeetings = data.meetings.map(m => ({
+                     const sanitizedMeetings = data.meetings.map((m: any) => ({
                         id: m.id || Date.now(),
                         title: m.title || '',
                         time: m.time || '',
@@ -1819,6 +1919,28 @@ const App: React.FC = () => {
   const focusedNode = displayedNodes.find(n => n.id === focusedNodeId);
   const activeNotesNode = displayedNodes.find(n => n.id === activeNotesNodeId);
 
+  const meetingAgendaNodes = useMemo(() => {
+    if (!meetingViewMeetingId) return [];
+    const nodesById = new Map(nodes.map(n => [n.id, n]));
+    const agendaNodesSet = new Set<Node>();
+  
+    const getDescendants = (nodeId: number) => {
+      const node = nodesById.get(nodeId);
+      if (!node || agendaNodesSet.has(node)) return;
+      agendaNodesSet.add(node);
+      const children = nodes.filter(n => n.parentId === nodeId);
+      children.forEach(child => getDescendants(child.id));
+    };
+  
+    nodes.forEach(node => {
+      if (node.meetingIds.includes(meetingViewMeetingId)) {
+        getDescendants(node.id);
+      }
+    });
+  
+    return Array.from(agendaNodesSet);
+  }, [meetingViewMeetingId, nodes]);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50 overflow-hidden">
         <header className="flex justify-between items-center p-3 border-b bg-white shadow-sm z-30">
@@ -1842,8 +1964,8 @@ const App: React.FC = () => {
             </div>
         </header>
 
-        <div className="p-3 border-b bg-white z-20">
-            <div className="flex items-center justify-between">
+        <div className="p-3 border-b bg-white z-20 overflow-x-auto">
+            <div className="flex items-center justify-between min-w-max">
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-gray-600">Owners:</span>
@@ -1852,159 +1974,183 @@ const App: React.FC = () => {
                                 <img src={owner.imageUrl} alt={owner.name} title={owner.name} className="w-8 h-8 rounded-full border-2 border-white shadow-sm" />
                             </div>
                         ))}
-                        <button onClick={() => setAddOwnerModalOpen(true)} className="w-8 h-8 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-300" title="Añadir Owner">+</button>
+                        <button onClick={() => setAddOwnerModalOpen(true)} className="w-8 h-8 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-300" title="Añadir Owner">
+                            <AddIcon />
+                        </button>
                     </div>
-                     <div className="flex items-center gap-2">
+                    <div className="w-px h-6 bg-gray-200"></div>
+                    <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-gray-600">Reuniones:</span>
-                         {[...meetings]
-                            .sort((a, b) => a.time.localeCompare(b.time))
-                            .map(meeting => (
-                                <button 
-                                    key={meeting.id} 
+                        {sortedMeetings.map(meeting => (
+                            <div key={meeting.id} onDragStart={(e) => e.dataTransfer.setData("application/meeting-id", meeting.id.toString())} draggable className="cursor-grab group relative">
+                                <button
                                     onClick={() => handleFilterByMeeting(meeting.id)}
-                                    onDragStart={(e) => e.dataTransfer.setData("application/meeting-id", meeting.id.toString())} 
-                                    draggable 
-                                    className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-colors cursor-grab
-                                        ${filterByMeetingId === meeting.id 
-                                            ? 'bg-blue-600 text-white ring-2 ring-blue-300' 
-                                            : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
-                                        }`
-                                    }
+                                    className={`flex items-center gap-1.5 text-xs pl-2 pr-3 py-1 rounded-full border-2 transition-colors ${filterByMeetingId === meeting.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-gray-300 hover:border-blue-500'}`}
                                     title={meeting.title}
                                 >
-                                    <CalendarIcon />
+                                    <CalendarIcon className="h-3.5 w-3.5" />
                                     <span className="font-semibold">{meeting.time}</span>
-                                    <span className="truncate max-w-28">{meeting.title}</span>
+                                    <span className="truncate max-w-[80px]">{meeting.title.split(/\s+/).slice(0, 2).join(' ')}</span>
                                 </button>
-                            ))
-                        }
-                        <button onClick={() => setAddMeetingModalOpen(true)} className="w-8 h-8 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-300" title="Añadir Reunión">+</button>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                     <span className="text-sm font-semibold text-gray-600 mr-2">Prioridades:</span>
-                    {[1,2,3].map(p => {
-                        const priority = p as Priority;
-                        return (
-                            <button key={priority} onClick={() => handlePriorityFilterClick(priority)}
-                                className={`px-3 py-1 text-xs font-bold rounded-full border-2 ${priorityFilter === priority ? `${PRIORITY_STYLES[priority].bg} ${PRIORITY_STYLES[priority].text} border-transparent` : 'bg-white border-gray-300 hover:border-red-400'}`}>
-                                {PRIORITY_STYLES[priority].label}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
-             {allTags.length > 0 && (
-                <div className="flex items-center gap-2 mt-2 pt-2 border-t">
-                    <span className="text-sm font-semibold text-gray-600 mr-2">Tags:</span>
-                    {allTags.map(tag => (
-                        <button key={tag} onClick={() => handleTextFilterClick(tag)} onDragStart={(e) => e.dataTransfer.setData("application/tag-name", tag)} draggable
-                         className={`px-2 py-0.5 text-xs rounded-full ${searchQuery === tag ? 'bg-red-600 text-white' : 'bg-red-100 text-red-800 hover:bg-red-200'}`}>
-                            {tag}
+                            </div>
+                        ))}
+                        <button onClick={() => setAddMeetingModalOpen(true)} className="w-8 h-8 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-300" title="Añadir Reunión">
+                            <AddIcon />
                         </button>
-                    ))}
-                </div>
-             )}
-        </div>
-        {filterByNodeId && (
-            <div className="flex items-center justify-center p-2 bg-yellow-100 text-yellow-800 text-sm font-medium z-20">
-                <FilterIcon className="mr-2"/>
-                <span>Filtrando por: <strong className="font-semibold">{nodes.find(n => n.id === filterByNodeId)?.text}</strong></span>
-                <button onClick={() => handleSetNodeFilter(null)} className="ml-4 font-semibold text-yellow-900 hover:underline">Limpiar Filtro</button>
-            </div>
-        )}
-        {filterByMeetingId && meetingsById.has(filterByMeetingId) && (
-            <div className="flex items-center justify-center gap-4 p-2 bg-blue-100 text-blue-800 text-sm font-medium z-20">
-                <CalendarIcon className="w-5 h-5"/>
-                <span>Filtrando por Reunión: <strong className="font-semibold">{meetingsById.get(filterByMeetingId)?.title}</strong></span>
-                <div className="w-px h-4 bg-blue-300"></div>
-                <button onClick={() => setMeetingViewMeetingId(filterByMeetingId)} className="font-semibold text-blue-900 hover:underline">Abrir Vista de Reunión</button>
-                <button onClick={() => handleFilterByMeeting(null)} className="ml-2 font-semibold text-blue-900 hover:underline">Limpiar Filtro</button>
-            </div>
-        )}
-
-        <main className="flex-grow bg-gray-100 relative overflow-hidden">
-            {viewMode === 'map' ? (
-                 <div className="h-full w-full" ref={mapRef} onMouseDown={handleMapMouseDown} onWheel={handleWheel} style={{ cursor: reparentingNodeId ? 'crosshair' : 'grab' }}>
-                    <div className="absolute" style={{ transform: `translate(${viewTransform.x}px, ${viewTransform.y}px) scale(${viewTransform.zoom})`, transformOrigin: '0 0' }}>
-                        <svg className="absolute top-0 left-0 w-full h-full" style={{ width: '100vw', height: '100vh', pointerEvents: 'none' }}>
-                            <defs>
-                                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#CBD5E1" />
-                                </marker>
-                            </defs>
-                            <g>
-                                {displayedNodes.map(node => {
-                                if (node.parentId === null || !displayedNodesById.has(node.parentId)) return null;
-                                const parent = displayedNodesById.get(node.parentId)!;
-                                const startX = parent.x + parent.width;
-                                const startY = parent.y + parent.height / 2;
-                                const endX = node.x;
-                                const endY = node.y + node.height / 2;
-                                const c1X = startX + H_SPACE / 2;
-                                const c1Y = startY;
-                                const c2X = endX - H_SPACE / 2;
-                                const c2Y = endY;
-                                return <path key={`${node.parentId}-${node.id}`} d={`M ${startX} ${startY} C ${c1X} ${c1Y}, ${c2X} ${c2Y}, ${endX} ${endY}`} stroke="#CBD5E1" strokeWidth="2" fill="none" />;
-                                })}
-                            </g>
-                        </svg>
-                        
-                        {displayedNodes.map(node => (
-                            <NodeComponent 
-                                key={node.id} node={node} ownersById={ownersById} meetingsById={meetingsById}
-                                reparentingNodeId={reparentingNodeId}
-                                onMouseDown={handleMouseDown}
-                                onNodeClick={handleNodeClick}
-                                onSetReparentingMode={handleSetReparentingMode}
-                                onAddLink={handleAddLink} onAddImage={handleAddImage}
-                                onRemoveLink={handleRemoveLink} onAddChild={() => handleAddNode(node.id)}
-                                onOpenLink={handleOpenLink} onUpdateText={handleUpdateNodeText}
-                                onToggleEdit={handleToggleEdit} onOpenNotes={handleOpenNotes} onOpenFocusView={setFocusedNodeId}
-                                onAddSubtask={handleAddSubtask} onToggleSubtask={handleToggleSubtask}
-                                onUpdateSubtaskText={handleUpdateSubtaskText} onSetSubtaskEditing={handleSetSubtaskEditing}
-                                onAddTag={handleAddTag} onRemoveTag={handleRemoveTag} onAssignOwner={handleAssignOwner} onAssignMeeting={handleAssignMeeting} onRemoveMeeting={handleRemoveMeeting} onCyclePriority={handleCyclePriority}
-                                onSetNodeFilter={handleSetNodeFilter}
-                                onShowImagePreview={(imageData, rect) => setPreviewImage({src: imageData, top: rect.bottom + 5, left: rect.left})}
-                                onHideImagePreview={() => setPreviewImage(null)}
-                                onOpenImageViewer={setViewingImageLink}
-                            />
+                    </div>
+                    <div className="w-px h-6 bg-gray-200"></div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-600">Tags:</span>
+                        {allTags.map(tag => (
+                            <button key={tag} onClick={() => handleTextFilterClick(tag)} onDragStart={(e) => e.dataTransfer.setData("application/tag-name", tag)} draggable className={`cursor-grab text-xs px-2.5 py-1 rounded-full border-2 transition-colors ${searchQuery === tag && !priorityFilter && !filterByNodeId && !filterByMeetingId ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:border-red-500'}`}>
+                                {tag}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="w-px h-6 bg-gray-200"></div>
+                     <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-600">Prioridad:</span>
+                        {[1, 2, 3].map((p) => (
+                            <button key={p} onClick={() => handlePriorityFilterClick(p as Priority)} className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${priorityFilter === p ? 'ring-2 ring-red-500 ring-offset-1' : ''} ${PRIORITY_STYLES[p as Priority].bg} ${PRIORITY_STYLES[p as Priority].text}`}>
+                                {PRIORITY_STYLES[p as Priority].label}
+                            </button>
                         ))}
                     </div>
                 </div>
+                <div className="flex items-center gap-2 pl-4">
+                    {filterByMeetingId && (
+                        <button onClick={() => setMeetingViewMeetingId(filterByMeetingId)} className="bg-blue-600 text-white font-bold py-1.5 px-3 rounded-md hover:bg-blue-700 transition-colors text-sm">
+                            Vista de Reunión
+                        </button>
+                    )}
+                    {(searchQuery || (priorityFilter && priorityFilter > 0) || filterByNodeId || filterByMeetingId) && (
+                        <button onClick={() => { setSearchQuery(''); setPriorityFilter(null); setFilterByNodeId(null); setFilterByMeetingId(null); }} className="text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 py-1.5 px-3 rounded-md transition-colors">
+                            Limpiar Filtros
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+
+        <main className="flex-grow relative overflow-hidden" ref={mapRef} onMouseDown={handleMapMouseDown} onWheel={handleWheel}>
+            {viewMode === 'map' ? (
+                <div className="absolute w-full h-full cursor-grab" style={{
+                    transform: `translate(${viewTransform.x}px, ${viewTransform.y}px) scale(${viewTransform.zoom})`,
+                    transformOrigin: '0 0'
+                }}>
+                    {/* Render lines first */}
+                    {displayedNodes.map(node => {
+                        const parent = node.parentId ? displayedNodesById.get(node.parentId) : null;
+                        if (!parent) return null;
+                        const startX = parent.x + parent.width;
+                        const startY = parent.y + parent.height / 2;
+                        const endX = node.x;
+                        const endY = node.y + node.height / 2;
+                        const midX = startX + (endX - startX) / 2;
+
+                        return (
+                            <svg key={`line-${node.id}`} className="absolute" style={{ overflow: 'visible', pointerEvents: 'none', top: 0, left: 0, width: '100%', height: '100%' }}>
+                                <path
+                                    d={`M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`}
+                                    stroke="#d1d5db"
+                                    strokeWidth="2"
+                                    fill="none"
+                                />
+                            </svg>
+                        );
+                    })}
+                    {/* Render nodes on top of lines */}
+                    {displayedNodes.map(node => (
+                        <NodeComponent
+                            key={node.id}
+                            node={node}
+                            ownersById={ownersById}
+                            meetingsById={meetingsById}
+                            reparentingNodeId={reparentingNodeId}
+                            onMouseDown={handleMouseDown}
+                            onNodeClick={handleNodeClick}
+                            onSetReparentingMode={handleSetReparentingMode}
+                            onAddLink={handleAddLink}
+                            onAddImage={handleAddImage}
+                            onRemoveLink={handleRemoveLink}
+                            onAddChild={(parentId) => handleAddNode(parentId)}
+                            onOpenLink={handleOpenLink}
+                            onUpdateText={handleUpdateNodeText}
+                            onToggleEdit={handleToggleEdit}
+                            onOpenNotes={handleOpenNotes}
+                            onOpenFocusView={(nodeId) => setFocusedNodeId(nodeId)}
+                            onAddSubtask={handleAddSubtask}
+                            onToggleSubtask={handleToggleSubtask}
+                            onUpdateSubtaskText={handleUpdateSubtaskText}
+                            onSetSubtaskEditing={handleSetSubtaskEditing}
+                            onAddTag={handleAddTag}
+                            onRemoveTag={handleRemoveTag}
+                            onAssignOwner={handleAssignOwner}
+                            onAssignMeeting={handleAssignMeeting}
+                            onRemoveMeeting={handleRemoveMeeting}
+                            onCyclePriority={handleCyclePriority}
+                            onSetNodeFilter={handleSetNodeFilter}
+                            onShowImagePreview={(imageData, rect) => setPreviewImage({ src: imageData, top: rect.bottom, left: rect.left })}
+                            onHideImagePreview={() => setPreviewImage(null)}
+                            onOpenImageViewer={setViewingImageLink}
+                        />
+                    ))}
+                </div>
             ) : (
-                <ListView nodes={nodes} ownersById={ownersById} onSaveNotes={handleUpdateNodeNotes} />
+                <ListView nodes={displayedNodes} ownersById={ownersById} onSaveNotes={handleUpdateNodeNotes}/>
             )}
 
-            {previewImage && createPortal(
-                <div style={{ position: 'fixed', top: previewImage.top, left: previewImage.left, zIndex: 100, pointerEvents: 'none' }} className="p-1 bg-white rounded-md shadow-lg border">
-                    <img src={previewImage.src} style={{ maxWidth: '200px', maxHeight: '200px' }} alt="Preview" />
-                </div>,
-                document.body
-            )}
-            <ImageViewerModal link={viewingImageLink} onClose={() => setViewingImageLink(null)} />
-
-          <SideBrowser link={browserLink} onClose={() => setBrowserLink(null)} />
-          <SideNotesPanel node={activeNotesNode} onClose={() => setActiveNotesNodeId(null)} onSaveNotes={handleUpdateNodeNotes} />
-          
-          <AddOwnerModal isOpen={isAddOwnerModalOpen} onClose={() => setAddOwnerModalOpen(false)} onSave={handleSaveOwner} />
-          <AddMeetingModal isOpen={isAddMeetingModalOpen} onClose={() => setAddMeetingModalOpen(false)} onSave={handleSaveMeeting} />
-          <AddLinkModal modalState={addLinkModalState} onClose={() => setAddLinkModalState({ isOpen: false, nodeId: null })} onSave={handleSaveLink} />
-          <AddImageModal modalState={addImageModalState} onClose={() => setAddImageModalState({ isOpen: false, nodeId: null })} onSave={handleSaveImage} />
-          {focusedNode && <FocusView node={focusedNode} owners={owners} ownersById={ownersById} onClose={() => setFocusedNodeId(null)} onSaveNotes={handleUpdateNodeNotes} onUpdateText={handleUpdateNodeText} onAddSubtask={handleAddSubtask} onToggleSubtask={handleToggleSubtask} onUpdateSubtaskText={handleUpdateSubtaskText} onSetSubtaskEditing={handleSetSubtaskEditing} onAddTag={handleAddTag} onRemoveTag={handleRemoveTag} onAssignOwner={handleAssignOwner} onRemoveOwner={handleRemoveOwner} onAddLink={handleAddLink} onRemoveLink={handleRemoveLink} onAssignOwnerToSubtask={handleAssignOwnerToSubtask} onRemoveOwnerFromSubtask={handleRemoveOwnerFromSubtask} onReorderSubtasks={handleReorderSubtasks} />}
-          {meetingViewMeetingId && meetingsById.has(meetingViewMeetingId) && (
+            <SideBrowser link={browserLink} onClose={() => setBrowserLink(null)} />
+            <SideNotesPanel node={activeNotesNode} onClose={() => setActiveNotesNodeId(null)} onSaveNotes={handleUpdateNodeNotes} />
+            {focusedNode &&
+                <FocusView
+                    node={focusedNode}
+                    owners={owners}
+                    ownersById={ownersById}
+                    onClose={() => setFocusedNodeId(null)}
+                    onSaveNotes={handleUpdateNodeNotes}
+                    onUpdateText={handleUpdateNodeText}
+                    onAddSubtask={handleAddSubtask}
+                    onToggleSubtask={handleToggleSubtask}
+                    onUpdateSubtaskText={handleUpdateSubtaskText}
+                    onSetSubtaskEditing={handleSetSubtaskEditing}
+                    onAddTag={handleAddTag}
+                    onRemoveTag={handleRemoveTag}
+                    onAssignOwner={handleAssignOwner}
+                    onRemoveOwner={handleRemoveOwner}
+                    onAddLink={handleAddLink}
+                    onRemoveLink={handleRemoveLink}
+                    onAssignOwnerToSubtask={handleAssignOwnerToSubtask}
+                    onRemoveOwnerFromSubtask={handleRemoveOwnerFromSubtask}
+                    onReorderSubtasks={handleReorderSubtasks}
+                />
+            }
+        </main>
+        {/* Modals and Overlays */}
+        <AddOwnerModal isOpen={isAddOwnerModalOpen} onClose={() => setAddOwnerModalOpen(false)} onSave={handleSaveOwner} />
+        <AddMeetingModal isOpen={isAddMeetingModalOpen} onClose={() => setAddMeetingModalOpen(false)} onSave={handleSaveMeeting} />
+        <AddLinkModal modalState={addLinkModalState} onClose={() => setAddLinkModalState({ isOpen: false, nodeId: null })} onSave={handleSaveLink} />
+        <AddImageModal modalState={addImageModalState} onClose={() => setAddImageModalState({ isOpen: false, nodeId: null })} onSave={handleSaveImage} />
+        {meetingViewMeetingId && meetingsById.has(meetingViewMeetingId) && (
             <MeetingViewModal
                 meeting={meetingsById.get(meetingViewMeetingId)!}
-                nodes={nodes.filter(n => n.meetingIds.includes(meetingViewMeetingId))}
+                agendaNodes={meetingAgendaNodes}
                 ownersById={ownersById}
                 onClose={() => setMeetingViewMeetingId(null)}
-                onSaveNotes={handleUpdateMeetingNotes}
+                onSaveMeetingNotes={handleUpdateMeetingNotes}
+                onSaveNodeNotes={handleUpdateNodeNotes}
             />
-          )}
-        </main>
+        )}
+        {viewingImageLink && <ImageViewerModal link={viewingImageLink} onClose={() => setViewingImageLink(null)} />}
+        {previewImage && createPortal(
+            <div className="fixed z-50 p-2 bg-white rounded-md shadow-lg border pointer-events-none" style={{ top: previewImage.top + 8, left: previewImage.left }}>
+                <img src={previewImage.src} alt="Preview" className="max-w-xs max-h-xs object-contain rounded" />
+            </div>,
+            document.body
+        )}
     </div>
   );
 };
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
-root.render(<App />);
+root.render(<React.StrictMode><App /></React.StrictMode>);
